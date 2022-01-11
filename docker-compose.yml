@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  database_projects:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pass123
+      POSTGRES_DB: projects
+    ports:
+      - 5432:5432
+    volumes:
+      - ./pkg/services/projects/store/data:/var/lib/postgresql/data
+      - ./pkg/services/projects/store/queries/create_tables.sql:/docker-entrypoint-initdb.d/initdb.sql
+    networks:
+      - postgres
+networks:
+  postgres:
+    driver: bridge

@@ -1,0 +1,2 @@
+air:
+	cd cmd/api
