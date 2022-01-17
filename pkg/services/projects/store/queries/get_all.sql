@@ -1,14 +1,15 @@
 SELECT p.id,
     p.name,
     p.description,
+    p.updated_at,
     cf.id,
     cf.name,
-    cf.content,
     ptag.tag
 FROM (
         SELECT id,
             name,
-            description
+            description,
+            updated_at
         FROM projects
         WHERE name ~ $1
         ORDER BY name

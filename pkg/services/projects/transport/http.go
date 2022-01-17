@@ -37,6 +37,8 @@ func Activate(ctx context.Context, r *mux.Router, db *sql.DB, reset bool) {
 	s := r.PathPrefix("/projects").Subrouter()
 	s.HandleFunc("", ph.GetAll).Methods("GET")
 	s.HandleFunc("/{id:[0-9]+}", ph.Get).Methods("GET")
+	s.Use(mux.CORSMethodMiddleware(s))
+	s.Use(corsAccessHeader)
 }
 
 // GetAll gets all the projects.
@@ -55,10 +57,6 @@ func (ph *handler) GetAll(rw http.ResponseWriter, h *http.Request) {
 	ps, err := ph.ProjectsService.GetAll(ph.ctx, qp)
 	if err != nil {
 		rw.WriteHeader(handleError(err))
-		return
-	}
-	if ps == nil {
-		json.NewEncoder(rw).Encode([]struct{}{})
 		return
 	}
 	json.NewEncoder(rw).Encode(ps)

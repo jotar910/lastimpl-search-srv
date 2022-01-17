@@ -23,7 +23,7 @@ const (
 	dbreset    = false
 
 	srvhost = "0.0.0.0"
-	srvport = 8080
+	srvport = 8081
 )
 
 func main() {
@@ -51,8 +51,8 @@ func main() {
 		Addr:         fmt.Sprintf("%s:%d", srvhost, srvport),
 		Handler:      r,
 		IdleTimeout:  120 * time.Second,
-		ReadTimeout:  1 * time.Second,
-		WriteTimeout: 1 * time.Second,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
 	}
 	l.Printf("Running server on port %d\n", srvport)
 

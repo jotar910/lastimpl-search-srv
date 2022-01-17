@@ -13,4 +13,6 @@ var (
 	QueryGetAll string
 	//go:embed get.sql
 	QueryGet string
+	//go:embed count.sql
+	QueryCount string
 )

@@ -1,10 +1,12 @@
 package dao
 
-import "lastimplementation.com/pkg/services/projects"
+import (
+	"lastimplementation.com/pkg/services/projects/models"
+)
 
-type ProjectsDao map[int]ProjectDao
+type ProjectsDao map[string]ProjectDao
 
-func (psDao ProjectsDao) Add(id int, project projects.Project, cfId int, cf projects.CodeFile, tag projects.TagType) {
+func (psDao ProjectsDao) Add(id string, project models.Project, cfId string, cf models.CodeFile, tag models.TagType) {
 	p, ok := psDao.Has(id)
 	if !ok {
 		p = newProjectDao(id, project)
@@ -14,27 +16,27 @@ func (psDao ProjectsDao) Add(id int, project projects.Project, cfId int, cf proj
 	p.codeFiles.Add(cfId, cf)
 }
 
-func (psDao ProjectsDao) Get() []projects.Project {
-	var ps []projects.Project
+func (psDao ProjectsDao) Get() []models.Project {
+	var ps []models.Project
 	for _, pDao := range psDao {
 		ps = append(ps, pDao.Get())
 	}
 	return ps
 }
 
-func (psDao ProjectsDao) Has(id int) (ProjectDao, bool) {
+func (psDao ProjectsDao) Has(id string) (ProjectDao, bool) {
 	ps, ok := psDao[id]
 	return ps, ok
 }
 
 type ProjectDao struct {
-	id        int
+	id        string
 	tags      TagsDao
 	codeFiles CodeFilesDao
-	project   projects.Project
+	project   models.Project
 }
 
-func newProjectDao(id int, project projects.Project) ProjectDao {
+func newProjectDao(id string, project models.Project) ProjectDao {
 	return ProjectDao{
 		id:        id,
 		tags:      make(TagsDao),
@@ -43,27 +45,27 @@ func newProjectDao(id int, project projects.Project) ProjectDao {
 	}
 }
 
-func (pDao ProjectDao) Get() projects.Project {
+func (pDao ProjectDao) Get() models.Project {
 	pDao.project.Tag = pDao.tags.Get()
 	pDao.project.Files = pDao.codeFiles.Get()
 	return pDao.project
 }
 
-type CodeFilesDao map[int]CodeFileDao
+type CodeFilesDao map[string]CodeFileDao
 
-func (cfsDao CodeFilesDao) Add(id int, codeFile projects.CodeFile) {
+func (cfsDao CodeFilesDao) Add(id string, codeFile models.CodeFile) {
 	if _, ok := cfsDao.Has(id); !ok {
 		cfsDao[id] = newCodeFileDao(id, codeFile)
 	}
 }
 
-func (cfsDao CodeFilesDao) Has(id int) (CodeFileDao, bool) {
+func (cfsDao CodeFilesDao) Has(id string) (CodeFileDao, bool) {
 	cf, ok := cfsDao[id]
 	return cf, ok
 }
 
-func (cfsDao CodeFilesDao) Get() []projects.CodeFile {
-	var cfs []projects.CodeFile
+func (cfsDao CodeFilesDao) Get() []models.CodeFile {
+	var cfs []models.CodeFile
 	for _, cfDao := range cfsDao {
 		cfs = append(cfs, cfDao.Get())
 	}
@@ -71,31 +73,17 @@ func (cfsDao CodeFilesDao) Get() []projects.CodeFile {
 }
 
 type CodeFileDao struct {
-	id       int
-	codeFile projects.CodeFile
+	id       string
+	codeFile models.CodeFile
 }
 
-func newCodeFileDao(id int, codeFile projects.CodeFile) CodeFileDao {
+func newCodeFileDao(id string, codeFile models.CodeFile) CodeFileDao {
 	return CodeFileDao{
 		id:       id,
 		codeFile: codeFile,
 	}
 }
 
-func (cfDao CodeFileDao) Get() projects.CodeFile {
+func (cfDao CodeFileDao) Get() models.CodeFile {
 	return cfDao.codeFile
-}
-
-type TagsDao map[projects.TagType]struct{}
-
-func (tagsDao TagsDao) Add(tag projects.TagType) {
-	tagsDao[tag] = struct{}{}
-}
-
-func (tagsDao TagsDao) Get() []projects.TagType {
-	var ts []projects.TagType
-	for t := range tagsDao {
-		ts = append(ts, t)
-	}
-	return ts
 }
