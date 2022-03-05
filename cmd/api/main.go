@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,20 +16,26 @@ import (
 )
 
 const (
-	dbhost     = "localhost"
+	dbhost     = "10.7.0.2"
 	dbport     = 5432
 	dbuser     = "postgres"
 	dbpassword = "pass123" // temporary
 	dbname     = "projects"
 	dbreset    = false
 
-	srvhost = "0.0.0.0"
+	srvhost = "10.7.0.3"
 	srvport = 8081
 )
 
 func main() {
 	ctx := context.Background()
 	l := log.New(os.Stdout, "api ", log.LstdFlags)
+
+	cer, err := tls.LoadX509KeyPair("crypto/certificate.pem", "crypto/key.pem")
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	// Get db connection.
 	db, err := db.GetConnection(&db.DBConfig{
@@ -53,6 +60,7 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 5 * time.Second,
+		TLSConfig:    &tls.Config{Certificates: []tls.Certificate{cer}},
 	}
 	l.Printf("Running server on port %d\n", srvport)
 

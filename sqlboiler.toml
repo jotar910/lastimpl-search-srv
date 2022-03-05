@@ -1,0 +1,7 @@
+[psql]
+dbname = "projects"
+host = "10.7.0.2"
+pass = "pass123"
+port = "5432"
+sslmode = "disable"
+user = "postgres"

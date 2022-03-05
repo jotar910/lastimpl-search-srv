@@ -14,7 +14,7 @@ const (
 type SearchQP struct {
 	Query string `validate:"max=100"`
 	Page  int    `validate:"min=1,max=100"`
-	Limit int    `validate:"min=20"`
+	Limit int    `validate:"min=1,max=100"`
 }
 
 func NewSearchQP(query, page, limit string) (SearchQP, error) {

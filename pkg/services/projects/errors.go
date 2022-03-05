@@ -1,8 +1,33 @@
 package projects
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+	"io"
+)
 
 var (
-	ErrProjectTimeout  = errors.New("request timeout")
-	ErrProjectNotFound = errors.New("requested project could not be found")
+	ErrProjectTimeout           = NewError("request timeout")
+	ErrProjectNotFound          = NewError("requested project could not be found")
+	ErrAddProjectDuplicatedName = NewError("duplicated name")
 )
+
+type outboundError struct {
+	Message string `json:"message"`
+}
+
+type OutboundError struct {
+	e error
+}
+
+func NewError(message string) OutboundError {
+	return OutboundError{errors.New(message)}
+}
+
+func (err OutboundError) Error() string {
+	return err.e.Error()
+}
+
+func (err OutboundError) ToJSON(w io.Writer) error {
+	return json.NewEncoder(w).Encode(outboundError{err.Error()})
+}

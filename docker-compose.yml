@@ -11,9 +11,25 @@ services:
       - 5432:5432
     volumes:
       - ./pkg/services/projects/store/data:/var/lib/postgresql/data
-      - ./pkg/services/projects/store/queries/create_tables.sql:/docker-entrypoint-initdb.d/initdb.sql
     networks:
-      - postgres
+      server:
+       ipv4_address: 10.7.0.2
+  server_projects:
+    build:
+      dockerfile: dockerfile
+      context: .
+    ports:
+      - 80:8081
+    volumes:
+      - .:/app
+    networks:
+      server:
+       ipv4_address: 10.7.0.3
 networks:
-  postgres:
+  server:
     driver: bridge
+    ipam:
+     driver: default
+     config:
+       - subnet: 10.7.0.0/16
+         gateway: 10.7.0.1

@@ -9,10 +9,4 @@ var (
 	QueryCreateTables string
 	//go:embed drop_tables.sql
 	QueryDropTables string
-	//go:embed get_all.sql
-	QueryGetAll string
-	//go:embed get.sql
-	QueryGet string
-	//go:embed count.sql
-	QueryCount string
 )
