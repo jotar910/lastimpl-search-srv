@@ -79,17 +79,20 @@ var ProjectWhere = struct {
 
 // ProjectRels is where relationship names are stored.
 var ProjectRels = struct {
-	CodeFiles    string
-	ProjectsTags string
+	CodeFiles         string
+	ProjectsHistories string
+	ProjectsTags      string
 }{
-	CodeFiles:    "CodeFiles",
-	ProjectsTags: "ProjectsTags",
+	CodeFiles:         "CodeFiles",
+	ProjectsHistories: "ProjectsHistories",
+	ProjectsTags:      "ProjectsTags",
 }
 
 // projectR is where relationships are stored.
 type projectR struct {
-	CodeFiles    CodeFileSlice    `boil:"CodeFiles" json:"CodeFiles" toml:"CodeFiles" yaml:"CodeFiles"`
-	ProjectsTags ProjectsTagSlice `boil:"ProjectsTags" json:"ProjectsTags" toml:"ProjectsTags" yaml:"ProjectsTags"`
+	CodeFiles         CodeFileSlice        `boil:"CodeFiles" json:"CodeFiles" toml:"CodeFiles" yaml:"CodeFiles"`
+	ProjectsHistories ProjectsHistorySlice `boil:"ProjectsHistories" json:"ProjectsHistories" toml:"ProjectsHistories" yaml:"ProjectsHistories"`
+	ProjectsTags      ProjectsTagSlice     `boil:"ProjectsTags" json:"ProjectsTags" toml:"ProjectsTags" yaml:"ProjectsTags"`
 }
 
 // NewStruct creates a new relationship struct
@@ -407,6 +410,27 @@ func (o *Project) CodeFiles(mods ...qm.QueryMod) codeFileQuery {
 	return query
 }
 
+// ProjectsHistories retrieves all the projects_history's ProjectsHistories with an executor.
+func (o *Project) ProjectsHistories(mods ...qm.QueryMod) projectsHistoryQuery {
+	var queryMods []qm.QueryMod
+	if len(mods) != 0 {
+		queryMods = append(queryMods, mods...)
+	}
+
+	queryMods = append(queryMods,
+		qm.Where("\"projects_history\".\"project_id\"=?", o.ID),
+	)
+
+	query := ProjectsHistories(queryMods...)
+	queries.SetFrom(query.Query, "\"projects_history\"")
+
+	if len(queries.GetSelect(query.Query)) == 0 {
+		queries.SetSelect(query.Query, []string{"\"projects_history\".*"})
+	}
+
+	return query
+}
+
 // ProjectsTags retrieves all the projects_tag's ProjectsTags with an executor.
 func (o *Project) ProjectsTags(mods ...qm.QueryMod) projectsTagQuery {
 	var queryMods []qm.QueryMod
@@ -516,6 +540,104 @@ func (projectL) LoadCodeFiles(ctx context.Context, e boil.ContextExecutor, singu
 				local.R.CodeFiles = append(local.R.CodeFiles, foreign)
 				if foreign.R == nil {
 					foreign.R = &codeFileR{}
+				}
+				foreign.R.Project = local
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+// LoadProjectsHistories allows an eager lookup of values, cached into the
+// loaded structs of the objects. This is for a 1-M or N-M relationship.
+func (projectL) LoadProjectsHistories(ctx context.Context, e boil.ContextExecutor, singular bool, maybeProject interface{}, mods queries.Applicator) error {
+	var slice []*Project
+	var object *Project
+
+	if singular {
+		object = maybeProject.(*Project)
+	} else {
+		slice = *maybeProject.(*[]*Project)
+	}
+
+	args := make([]interface{}, 0, 1)
+	if singular {
+		if object.R == nil {
+			object.R = &projectR{}
+		}
+		args = append(args, object.ID)
+	} else {
+	Outer:
+		for _, obj := range slice {
+			if obj.R == nil {
+				obj.R = &projectR{}
+			}
+
+			for _, a := range args {
+				if a == obj.ID {
+					continue Outer
+				}
+			}
+
+			args = append(args, obj.ID)
+		}
+	}
+
+	if len(args) == 0 {
+		return nil
+	}
+
+	query := NewQuery(
+		qm.From(`projects_history`),
+		qm.WhereIn(`projects_history.project_id in ?`, args...),
+	)
+	if mods != nil {
+		mods.Apply(query)
+	}
+
+	results, err := query.QueryContext(ctx, e)
+	if err != nil {
+		return errors.Wrap(err, "failed to eager load projects_history")
+	}
+
+	var resultSlice []*ProjectsHistory
+	if err = queries.Bind(results, &resultSlice); err != nil {
+		return errors.Wrap(err, "failed to bind eager loaded slice projects_history")
+	}
+
+	if err = results.Close(); err != nil {
+		return errors.Wrap(err, "failed to close results in eager load on projects_history")
+	}
+	if err = results.Err(); err != nil {
+		return errors.Wrap(err, "error occurred during iteration of eager loaded relations for projects_history")
+	}
+
+	if len(projectsHistoryAfterSelectHooks) != 0 {
+		for _, obj := range resultSlice {
+			if err := obj.doAfterSelectHooks(ctx, e); err != nil {
+				return err
+			}
+		}
+	}
+	if singular {
+		object.R.ProjectsHistories = resultSlice
+		for _, foreign := range resultSlice {
+			if foreign.R == nil {
+				foreign.R = &projectsHistoryR{}
+			}
+			foreign.R.Project = object
+		}
+		return nil
+	}
+
+	for _, foreign := range resultSlice {
+		for _, local := range slice {
+			if local.ID == foreign.ProjectID {
+				local.R.ProjectsHistories = append(local.R.ProjectsHistories, foreign)
+				if foreign.R == nil {
+					foreign.R = &projectsHistoryR{}
 				}
 				foreign.R.Project = local
 				break
@@ -668,6 +790,59 @@ func (o *Project) AddCodeFiles(ctx context.Context, exec boil.ContextExecutor, i
 	for _, rel := range related {
 		if rel.R == nil {
 			rel.R = &codeFileR{
+				Project: o,
+			}
+		} else {
+			rel.R.Project = o
+		}
+	}
+	return nil
+}
+
+// AddProjectsHistories adds the given related objects to the existing relationships
+// of the project, optionally inserting them as new records.
+// Appends related to o.R.ProjectsHistories.
+// Sets related.R.Project appropriately.
+func (o *Project) AddProjectsHistories(ctx context.Context, exec boil.ContextExecutor, insert bool, related ...*ProjectsHistory) error {
+	var err error
+	for _, rel := range related {
+		if insert {
+			rel.ProjectID = o.ID
+			if err = rel.Insert(ctx, exec, boil.Infer()); err != nil {
+				return errors.Wrap(err, "failed to insert into foreign table")
+			}
+		} else {
+			updateQuery := fmt.Sprintf(
+				"UPDATE \"projects_history\" SET %s WHERE %s",
+				strmangle.SetParamNames("\"", "\"", 1, []string{"project_id"}),
+				strmangle.WhereClause("\"", "\"", 2, projectsHistoryPrimaryKeyColumns),
+			)
+			values := []interface{}{o.ID, rel.ID}
+
+			if boil.IsDebug(ctx) {
+				writer := boil.DebugWriterFrom(ctx)
+				fmt.Fprintln(writer, updateQuery)
+				fmt.Fprintln(writer, values)
+			}
+			if _, err = exec.ExecContext(ctx, updateQuery, values...); err != nil {
+				return errors.Wrap(err, "failed to update foreign table")
+			}
+
+			rel.ProjectID = o.ID
+		}
+	}
+
+	if o.R == nil {
+		o.R = &projectR{
+			ProjectsHistories: related,
+		}
+	} else {
+		o.R.ProjectsHistories = append(o.R.ProjectsHistories, related...)
+	}
+
+	for _, rel := range related {
+		if rel.R == nil {
+			rel.R = &projectsHistoryR{
 				Project: o,
 			}
 		} else {

@@ -1,3 +1,5 @@
+CREATE SEQUENCE projects_revision_number_seq;
+
 CREATE TABLE projects (
     id SERIAL PRIMARY KEY,
     name VARCHAR(200) NOT NULL UNIQUE,
@@ -31,6 +33,21 @@ CREATE TABLE projects_tags (
     updated_at TIMESTAMP NOT NULL,
     CONSTRAINT fk_project FOREIGN KEY(project_id) REFERENCES projects(id),
     CONSTRAINT fk_tag FOREIGN KEY(tag_id) REFERENCES tags(id)
+);
+
+CREATE TABLE projects_history (
+    id SERIAL PRIMARY KEY,
+    project_id INT NOT NULL,
+    revision_number INT NOT NULL DEFAULT NEXTVAL('projects_revision_number_seq'),
+    CONSTRAINT fk_project FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE TABLE projects_code_files_history (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    content VARCHAR(100000) NOT NULL,
+    revision_id INT NOT NULL,
+    CONSTRAINT fk_revision FOREIGN KEY(revision_id) REFERENCES projects_history(id)
 );
 
 CREATE INDEX project_tags_project_idx ON projects_tags(project_id);

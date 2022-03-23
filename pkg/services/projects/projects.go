@@ -14,6 +14,8 @@ type Repo interface {
 	Add(ctx context.Context, project models.Project) (int, error)
 	Update(ctx context.Context, id int, details models.ProjectDetails) error
 	Delete(ctx context.Context, id int) error
+	UpdateFiles(ctx context.Context, projectId int, files []models.CodeFile) error
+	GetFiles(ctx context.Context, projectId int) (models.CodeFiles, error)
 }
 
 type Service interface {
@@ -23,6 +25,8 @@ type Service interface {
 	Add(ctx context.Context, project models.Project) (int, error)
 	Update(ctx context.Context, id int, details models.ProjectDetails) error
 	Delete(ctx context.Context, id int) error
+	GetFiles(ctx context.Context, projectId int) (models.CodeFiles, error)
+	UpdateFiles(ctx context.Context, projectId int, files []models.CodeFile) error
 }
 
 type projects struct {
@@ -33,7 +37,7 @@ type projects struct {
 // New creates a new projects service.
 func New(l logger.Logger, repo Repo) *projects {
 	return &projects{
-		l:    l,
+		l:    l.WithPrefix("service"),
 		repo: repo,
 	}
 }
@@ -66,4 +70,14 @@ func (p *projects) Update(ctx context.Context, id int, details models.ProjectDet
 // Delete deletes an existing project.
 func (p *projects) Delete(ctx context.Context, id int) error {
 	return p.repo.Delete(ctx, id)
+}
+
+// GetFiles returns a list of the files that exists on a project.
+func (p *projects) GetFiles(ctx context.Context, projectId int) (models.CodeFiles, error) {
+	return p.repo.GetFiles(ctx, projectId)
+}
+
+// UpdateFiles updates the code files on a project.
+func (p *projects) UpdateFiles(ctx context.Context, projectId int, files []models.CodeFile) error {
+	return p.repo.UpdateFiles(ctx, projectId, files)
 }

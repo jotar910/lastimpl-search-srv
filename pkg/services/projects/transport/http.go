@@ -33,16 +33,18 @@ func Activate(ctx context.Context, r *mux.Router, db *sql.DB, reset bool) {
 	}
 
 	// Setup handlers.
-	ph := handler{l, ps}
+	ph := handler{l.WithPrefix("transport"), ps}
 	s := r.PathPrefix("/projects").Subrouter()
 	s.HandleFunc("", ph.Add).Methods("POST")
 	s.HandleFunc("", ph.GetAll).Methods("GET")
 	s.HandleFunc("/{id:[0-9]+}", ph.Get).Methods("GET")
 	s.HandleFunc("/{id:[0-9]+}", ph.Update).Methods("PATCH")
 	s.HandleFunc("/{id:[0-9]+}", ph.Delete).Methods("DELETE")
+	s.HandleFunc("/{id:[0-9]+}/files", ph.GetFiles).Methods("GET")
+	s.HandleFunc("/{id:[0-9]+}/files", ph.UpdateFiles).Methods("PUT", "OPTIONS")
 	s.Use(mux.CORSMethodMiddleware(s))
-	s.Use(jsonContentHeader)
 	s.Use(corsAccessHeader)
+	s.Use(jsonContentHeader)
 }
 
 // Get gets a single project.
@@ -144,6 +146,63 @@ func (ph *handler) Delete(rw http.ResponseWriter, h *http.Request) {
 		return
 	}
 	if err := ph.ProjectsService.Delete(context.Background(), id); err != nil {
+		ph.handleError(err, rw)
+		return
+	}
+	rw.WriteHeader(http.StatusOK)
+}
+
+// GetFiles writes a list of existing files for a project.
+func (ph *handler) GetFiles(rw http.ResponseWriter, h *http.Request) {
+	log := ph.l.WithPrefix("get project files")
+	log.Trace("request started")
+	id, err := idVar(mux.Vars(h))
+	if err != nil {
+		log.Error("project id", err)
+		ph.writeError(rw, http.StatusBadRequest, err)
+		return
+	}
+	files, err := ph.ProjectsService.GetFiles(context.Background(), id)
+	if err != nil {
+		ph.handleError(err, rw)
+		return
+	}
+	if err := files.ToJSON(rw); err != nil {
+		ph.handleError(err, rw)
+	}
+}
+
+// UpdateFiles updates the current code files.
+func (ph *handler) UpdateFiles(rw http.ResponseWriter, h *http.Request) {
+	log := ph.l.WithPrefix("update project files")
+	log.Trace("request started")
+	id, err := idVar(mux.Vars(h))
+	if err != nil {
+		log.Error("project id", err)
+		ph.writeError(rw, http.StatusBadRequest, err)
+		return
+	}
+	var files models.CodeFiles
+	if err := files.FromJSON(h.Body); err != nil {
+		log.Error("failed to decode body", err)
+		ph.writeError(rw, http.StatusBadRequest, projects.ErrDecodeBody)
+		return
+	}
+	if len(files) > models.MaximumCodeFiles {
+		err := projects.NewError(fmt.Sprintf("total of code files exceeded the maximum limit (%d)", models.MaximumCodeFiles))
+		log.Error(err)
+		ph.writeError(rw, http.StatusBadRequest, err)
+		return
+	}
+	for _, file := range files {
+		if err := validate.Get().Struct(file); err != nil {
+			err := fmt.Errorf("invalid input file %q: %w", file.Name, err)
+			log.Error(err)
+			ph.writeError(rw, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if err := ph.ProjectsService.UpdateFiles(context.Background(), id, files); err != nil {
 		ph.handleError(err, rw)
 		return
 	}

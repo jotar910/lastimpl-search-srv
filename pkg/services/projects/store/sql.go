@@ -24,12 +24,14 @@ type projectsRepo struct {
 
 // New creates a projects repo.
 func New(l logger.Logger, db *sql.DB) *projectsRepo {
-	return &projectsRepo{l, db}
+	return &projectsRepo{l.WithPrefix("store"), db}
 }
 
 // Reset resets the projects tables.
 func (pr *projectsRepo) Reset(ctx context.Context) error {
-	pr.l.Trace("Resetting the projects repo")
+	log := pr.l.WithPrefix("reset")
+
+	log.Trace("Resetting the projects repo")
 	if _, err := pr.db.Exec(queries.QueryDropTables); err != nil {
 		return fmt.Errorf("executing query: %w", err)
 	}
@@ -39,16 +41,19 @@ func (pr *projectsRepo) Reset(ctx context.Context) error {
 	return nil
 }
 
+// Add inserts a new project.
 func (pr *projectsRepo) Add(ctx context.Context, project models.Project) (int, error) {
+	log := pr.l.WithPrefix("add")
+
 	tx, err := pr.db.BeginTx(ctx, nil)
 	if err != nil {
-		pr.l.Error("begining transaction", err.Error())
+		log.Error("begining transaction", err.Error())
 		return -1, err
 	}
 
 	p := dao.Project{Name: project.Name, Description: project.Description}
 	if err = p.Insert(ctx, tx, boil.Infer()); err != nil {
-		pr.l.Error("inserting new project", err)
+		log.Error("inserting new project", err)
 		tx.Rollback()
 		if strings.HasSuffix(err.Error(), ErrDuplicated("projects_name_key")) {
 			return -1, projects.ErrAddProjectDuplicatedName
@@ -57,13 +62,13 @@ func (pr *projectsRepo) Add(ctx context.Context, project models.Project) (int, e
 	}
 
 	if err := pr.addTags(ctx, tx, p.ID, project.Tag); err != nil {
-		pr.l.Error("adding tags to the project", err.Error())
+		log.Error("adding tags to the project", err.Error())
 		tx.Rollback()
 		return -1, err
 	}
 
 	if err := pr.addFiles(ctx, tx, p.ID, project.Files); err != nil {
-		pr.l.Error("adding code files to the project", err.Error())
+		log.Error("adding code files to the project", err.Error())
 		tx.Rollback()
 		return -1, err
 	}
@@ -83,7 +88,7 @@ func (pr *projectsRepo) addFiles(ctx context.Context, tx *sql.Tx, pId int, cfs [
 			Content:   cf.Content,
 		}
 		if err := file.Insert(context.Background(), tx, boil.Infer()); err != nil {
-			return err
+			return fmt.Errorf("inserting project %q: %w", cf.Name, err)
 		}
 	}
 	return nil
@@ -141,13 +146,16 @@ func (pr *projectsRepo) getTagsToAdd(ctx context.Context, tx *sql.Tx, tags []mod
 	return existingTags, leftTags, nil
 }
 
+// Get fetches a specific project.
 func (pr *projectsRepo) Get(ctx context.Context, id int) (models.Project, error) {
+	log := pr.l.WithPrefix("get")
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	tx, err := pr.db.BeginTx(ctx, nil)
 	if err != nil {
-		pr.l.Error("begining transaction", err)
+		log.Error("begining transaction", err)
 		return models.Project{}, err
 	}
 
@@ -155,17 +163,21 @@ func (pr *projectsRepo) Get(ctx context.Context, id int) (models.Project, error)
 		qm.Where("id = ?", id),
 		qm.Select(dao.ProjectColumns.ID, dao.ProjectColumns.Name, dao.ProjectColumns.Description),
 		qm.Load(dao.ProjectRels.CodeFiles,
-			qm.Select(dao.CodeFileColumns.ID, dao.CodeFileColumns.Name, dao.CodeFileColumns.Content)),
+			qm.Select(dao.CodeFileColumns.ID, dao.CodeFileColumns.Name, dao.CodeFileColumns.Content, dao.CodeFileColumns.CreatedAt),
+			qm.OrderBy(dao.CodeFileColumns.CreatedAt)),
 		qm.Load(qm.Rels(dao.ProjectRels.ProjectsTags), qm.Select(dao.ProjectsTagColumns.TagID)),
-		qm.Load(qm.Rels(dao.ProjectRels.ProjectsTags, dao.ProjectsTagRels.Tag), qm.Select(dao.TagColumns.ID, dao.TagColumns.Name)),
+		qm.Load(qm.Rels(dao.ProjectRels.ProjectsTags, dao.ProjectsTagRels.Tag),
+			qm.Select(dao.TagColumns.ID, dao.TagColumns.Name)),
 	).One(ctx, tx)
 	if err != nil {
-		pr.l.Error("executing query to get project:", err)
+		log.Error("executing query to get project:", err)
+		tx.Rollback()
 		if strings.HasSuffix(err.Error(), ErrNotResult()) {
 			return models.Project{}, projects.ErrProjectNotFound
 		}
 		return models.Project{}, err
 	}
+	tx.Commit()
 
 	res := models.Project{
 		Id: p.ID,
@@ -190,13 +202,16 @@ func (pr *projectsRepo) Get(ctx context.Context, id int) (models.Project, error)
 	return res, nil
 }
 
+// GetAll fetches the projects list.
 func (pr *projectsRepo) GetAll(ctx context.Context, query string, page, limit int) (models.ProjectsList, error) {
+	log := pr.l.WithPrefix("getAll")
+
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	tx, err := pr.db.BeginTx(ctx, nil)
 	if err != nil {
-		pr.l.Error("begining transaction", err)
+		log.Error("begining transaction", err)
 		return models.ProjectsList{}, err
 	}
 
@@ -206,21 +221,22 @@ func (pr *projectsRepo) GetAll(ctx context.Context, query string, page, limit in
 		qm.Offset((page-1)*limit),
 		qm.Limit(limit),
 		qm.Load(dao.ProjectRels.CodeFiles,
-			qm.Select(dao.CodeFileColumns.ProjectID, dao.CodeFileColumns.ID, dao.CodeFileColumns.Name)),
+			qm.Select(dao.CodeFileColumns.ProjectID, dao.CodeFileColumns.ID, dao.CodeFileColumns.Name, dao.CodeFileColumns.CreatedAt),
+			qm.OrderBy(dao.CodeFileColumns.CreatedAt)),
 		qm.Load(dao.ProjectRels.ProjectsTags,
 			qm.Select(dao.ProjectsTagColumns.ProjectID, dao.ProjectsTagColumns.TagID)),
 		qm.Load(qm.Rels(dao.ProjectRels.ProjectsTags, dao.ProjectsTagRels.Tag),
 			qm.Select(dao.TagColumns.ID, dao.TagColumns.Name)),
 	).All(ctx, tx)
 	if err != nil {
-		pr.l.Error("getting project items", err)
+		log.Error("getting project items", err)
 		tx.Rollback()
 		return models.ProjectsList{}, err
 	}
 
 	count, err := dao.Projects().Count(ctx, pr.db)
 	if err != nil {
-		pr.l.Error("counting total project items", err)
+		log.Error("counting total project items", err)
 		tx.Rollback()
 		return models.ProjectsList{}, err
 	}
@@ -260,10 +276,13 @@ func (pr *projectsRepo) GetAll(ctx context.Context, query string, page, limit in
 	return projectList, nil
 }
 
+// Update updates the data from an existing project.
 func (pr *projectsRepo) Update(ctx context.Context, id int, project models.ProjectDetails) error {
+	log := pr.l.WithPrefix("update")
+
 	tx, err := pr.db.BeginTx(ctx, nil)
 	if err != nil {
-		pr.l.Error("begining transaction", err)
+		log.Error("begining transaction", err)
 		return err
 	}
 
@@ -274,13 +293,13 @@ func (pr *projectsRepo) Update(ctx context.Context, id int, project models.Proje
 	}
 	changed, err := p.Update(ctx, tx, boil.Whitelist(dao.ProjectColumns.Name, dao.ProjectColumns.Description, dao.ProjectColumns.UpdatedAt))
 	if err != nil {
-		pr.l.Error("updating existing project", err)
+		log.Error("updating existing project", err)
 		tx.Rollback()
 		return err
 	}
 	if changed == 0 {
 		err := projects.ErrProjectNotFound
-		pr.l.Error("updating existing project", err)
+		log.Error("updating existing project", err)
 		tx.Rollback()
 		return err
 	}
@@ -289,10 +308,13 @@ func (pr *projectsRepo) Update(ctx context.Context, id int, project models.Proje
 	return nil
 }
 
+// Delete deletes an existing project.
 func (pr *projectsRepo) Delete(ctx context.Context, id int) error {
+	log := pr.l.WithPrefix("delete")
+
 	tx, err := pr.db.BeginTx(ctx, nil)
 	if err != nil {
-		pr.l.Error("begining transaction", err)
+		log.Error("begining transaction", err)
 		return err
 	}
 
@@ -301,29 +323,174 @@ func (pr *projectsRepo) Delete(ctx context.Context, id int) error {
 		qm.Where("id = ?", id),
 	).One(ctx, tx)
 	if err != nil {
-		pr.l.Error("finding project", err)
+		log.Error("finding project", err)
 		tx.Rollback()
-		return projects.ErrProjectNotFound
+		if strings.HasSuffix(err.Error(), ErrNotResult()) {
+			return projects.ErrProjectNotFound
+		}
+		return err
 	}
 
 	if _, err := dao.CodeFiles(qm.Where("project_id = ?", id)).DeleteAll(ctx, tx); err != nil {
-		pr.l.Error("deleting code files from existing project", err)
+		log.Error("deleting code files from existing project", err)
 		tx.Rollback()
 		return err
 	}
 
 	if _, err := dao.ProjectsTags(qm.Where("project_id = ?", id)).DeleteAll(ctx, tx); err != nil {
-		pr.l.Error("deleting code files from existing project", err)
+		log.Error("deleting code files from existing project", err)
 		tx.Rollback()
 		return err
 	}
 
 	if _, err := p.Delete(ctx, tx); err != nil {
-		pr.l.Error("deleting existing project", err)
+		log.Error("deleting existing project", err)
 		tx.Rollback()
 		return err
 	}
 
 	tx.Commit()
+	return nil
+}
+
+// GetFiles fetches all the files for a given project.
+func (pr *projectsRepo) GetFiles(ctx context.Context, projectId int) (models.CodeFiles, error) {
+	log := pr.l.WithPrefix("getFiles")
+
+	dbFiles, err := dao.CodeFiles(
+		qm.Select(dao.CodeFileColumns.ID, dao.CodeFileColumns.ProjectID, dao.CodeFileColumns.Name, dao.CodeFileColumns.Content, dao.CodeFileColumns.CreatedAt),
+		qm.Where("project_id = ?", projectId),
+		qm.Limit(models.MaximumCodeFiles),
+		qm.OrderBy(dao.CodeFileColumns.CreatedAt),
+	).All(ctx, pr.db)
+	if err != nil {
+		log.Error("fetching code file for an existing project", err)
+		return nil, err
+	}
+	files := make([]models.CodeFile, len(dbFiles))
+	for i, dbFile := range dbFiles {
+		files[i] = models.CodeFile{
+			Id:      dbFile.ID,
+			Name:    dbFile.Name,
+			Content: dbFile.Content,
+		}
+	}
+	return files, nil
+}
+
+// UpdateFiles updates the files data for a given project.
+func (pr *projectsRepo) UpdateFiles(ctx context.Context, projectId int, files []models.CodeFile) error {
+	log := pr.l.WithPrefix("updateFiles")
+
+	tx, err := pr.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Error("begining transaction", err)
+		return err
+	}
+
+	_, err = dao.Projects(
+		qm.Select(dao.ProjectColumns.ID),
+		qm.Where("id = ?", projectId),
+	).One(ctx, tx)
+	if err != nil {
+		log.Error("finding project", err)
+		tx.Rollback()
+		if strings.HasSuffix(err.Error(), ErrNotResult()) {
+			return projects.ErrProjectNotFound
+		}
+		return err
+	}
+
+	dbHistProj := dao.ProjectsHistory{ProjectID: projectId}
+	if err := dbHistProj.Insert(ctx, tx, boil.Infer()); err != nil {
+		log.Error("inserting project revision history", err)
+		tx.Rollback()
+		return err
+	}
+
+	dbFiles, err := dao.CodeFiles(qm.Where("project_id = ?", projectId)).All(ctx, tx)
+	if err != nil {
+		log.Error("getting project files")
+		tx.Rollback()
+		return err
+	}
+
+	for _, dbFile := range dbFiles {
+		dbHistFile := dao.ProjectsCodeFilesHistory{
+			Name:       dbFile.Name,
+			Content:    dbFile.Content,
+			RevisionID: dbHistProj.ID,
+		}
+		if err := dbHistFile.Insert(ctx, tx, boil.Infer()); err != nil {
+			log.Error("inserting code file to history", err)
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := pr.mergeFiles(ctx, tx, projectId, files, dbFiles); err != nil {
+		log.Error("merging project files", err)
+		tx.Rollback()
+		return err
+	}
+
+	tx.Commit()
+	return nil
+}
+
+func (pr *projectsRepo) mergeFiles(ctx context.Context, tx *sql.Tx, projectId int, files []models.CodeFile, dbFiles dao.CodeFileSlice) error {
+	filesToUpdateMap := make(map[int]models.CodeFile)
+	var filesToAdd []models.CodeFile
+	for _, file := range files {
+		if file.Id != 0 {
+			filesToUpdateMap[file.Id] = file
+		} else {
+			filesToAdd = append(filesToAdd, file)
+		}
+	}
+
+	if len(filesToUpdateMap) == 0 {
+		return pr.setFiles(ctx, tx, projectId, files, dbFiles)
+	}
+
+	var dbFilesToDelete dao.CodeFileSlice
+	var dbFilesToUpdate dao.CodeFileSlice
+	for _, dbFile := range dbFiles {
+		if _, ok := filesToUpdateMap[dbFile.ID]; ok {
+			dbFilesToUpdate = append(dbFilesToUpdate, dbFile)
+		} else {
+			dbFilesToDelete = append(dbFilesToDelete, dbFile)
+		}
+	}
+
+	if _, err := dbFilesToDelete.DeleteAll(ctx, tx); err != nil {
+		return fmt.Errorf("deleting some existing project files: %w", err)
+	}
+
+	for _, dbFile := range dbFilesToUpdate {
+		file := filesToUpdateMap[dbFile.ID]
+		dbFile.Name = file.Name
+		dbFile.Content = file.Content
+		if _, err := dbFile.Update(ctx, tx, boil.Whitelist(dao.CodeFileColumns.Name, dao.CodeFileColumns.Content)); err != nil {
+			return fmt.Errorf("updating existing project file %d: %w", dbFile.ID, err)
+		}
+	}
+
+	if err := pr.addFiles(ctx, tx, projectId, filesToAdd); err != nil {
+		return fmt.Errorf("adding some of the new project files: %w", err)
+	}
+
+	return nil
+}
+
+func (pr *projectsRepo) setFiles(ctx context.Context, tx *sql.Tx, projectId int, files []models.CodeFile, dbFiles dao.CodeFileSlice) error {
+	if _, err := dbFiles.DeleteAll(ctx, tx); err != nil {
+		return fmt.Errorf("deleting all existing project files: %w", err)
+	}
+
+	if err := pr.addFiles(ctx, tx, projectId, files); err != nil {
+		return fmt.Errorf("adding all the new project files: %w", err)
+	}
+
 	return nil
 }

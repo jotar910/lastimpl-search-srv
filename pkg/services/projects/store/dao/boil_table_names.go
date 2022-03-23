@@ -4,13 +4,17 @@
 package dao
 
 var TableNames = struct {
-	CodeFiles    string
-	Projects     string
-	ProjectsTags string
-	Tags         string
+	CodeFiles                string
+	Projects                 string
+	ProjectsCodeFilesHistory string
+	ProjectsHistory          string
+	ProjectsTags             string
+	Tags                     string
 }{
-	CodeFiles:    "code_files",
-	Projects:     "projects",
-	ProjectsTags: "projects_tags",
-	Tags:         "tags",
+	CodeFiles:                "code_files",
+	Projects:                 "projects",
+	ProjectsCodeFilesHistory: "projects_code_files_history",
+	ProjectsHistory:          "projects_history",
+	ProjectsTags:             "projects_tags",
+	Tags:                     "tags",
 }

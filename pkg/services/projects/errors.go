@@ -10,6 +10,7 @@ var (
 	ErrProjectTimeout           = NewError("request timeout")
 	ErrProjectNotFound          = NewError("requested project could not be found")
 	ErrAddProjectDuplicatedName = NewError("duplicated name")
+	ErrDecodeBody               = NewError("failed to decode body")
 )
 
 type outboundError struct {
