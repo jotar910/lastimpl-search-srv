@@ -35,10 +35,10 @@ func Activate(ctx context.Context, r *mux.Router, db *sql.DB, reset bool) {
 	// Setup handlers.
 	ph := handler{l.WithPrefix("transport"), ps}
 	s := r.PathPrefix("/projects").Subrouter()
-	s.HandleFunc("", ph.Add).Methods("POST")
+	s.HandleFunc("", ph.Add).Methods("POST", "OPTIONS")
 	s.HandleFunc("", ph.GetAll).Methods("GET")
 	s.HandleFunc("/{id:[0-9]+}", ph.Get).Methods("GET")
-	s.HandleFunc("/{id:[0-9]+}", ph.Update).Methods("PATCH")
+	s.HandleFunc("/{id:[0-9]+}", ph.Update).Methods("PATCH", "OPTIONS")
 	s.HandleFunc("/{id:[0-9]+}", ph.Delete).Methods("DELETE")
 	s.HandleFunc("/{id:[0-9]+}/files", ph.GetFiles).Methods("GET")
 	s.HandleFunc("/{id:[0-9]+}/files", ph.UpdateFiles).Methods("PUT", "OPTIONS")
@@ -125,7 +125,13 @@ func (ph *handler) Update(rw http.ResponseWriter, h *http.Request) {
 		ph.handleError(err, rw)
 		return
 	}
-	if err := validate.Get().Struct(projectDetails); err != nil {
+	filled := projectDetails.FilledProps()
+	if len(filled) == 0 {
+		ph.l.Error("update project", "empty input value", err)
+		ph.writeError(rw, http.StatusBadRequest, fmt.Errorf("empty project"))
+		return
+	}
+	if err := validate.Get().StructPartial(projectDetails, filled...); err != nil {
 		ph.l.Error("update project", "reading input values", err)
 		ph.writeError(rw, http.StatusBadRequest, err)
 		return

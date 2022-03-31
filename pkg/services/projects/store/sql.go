@@ -61,7 +61,7 @@ func (pr *projectsRepo) Add(ctx context.Context, project models.Project) (int, e
 		return -1, err
 	}
 
-	if err := pr.addTags(ctx, tx, p.ID, project.Tag); err != nil {
+	if err := pr.addTags(ctx, tx, p.ID, project.Tags); err != nil {
 		log.Error("adding tags to the project", err.Error())
 		tx.Rollback()
 		return -1, err
@@ -188,7 +188,7 @@ func (pr *projectsRepo) Get(ctx context.Context, id int) (models.Project, error)
 	}
 
 	for _, tag := range p.R.ProjectsTags {
-		res.Tag = append(res.Tag, models.TagType(tag.R.Tag.Name))
+		res.Tags = append(res.Tags, models.TagType(tag.R.Tag.Name))
 	}
 
 	for _, cf := range p.R.CodeFiles {
@@ -220,6 +220,7 @@ func (pr *projectsRepo) GetAll(ctx context.Context, query string, page, limit in
 		qm.Where("LOWER(name) ~ ?", strings.ToLower(query)),
 		qm.Offset((page-1)*limit),
 		qm.Limit(limit),
+		qm.OrderBy(dao.ProjectColumns.Name),
 		qm.Load(dao.ProjectRels.CodeFiles,
 			qm.Select(dao.CodeFileColumns.ProjectID, dao.CodeFileColumns.ID, dao.CodeFileColumns.Name, dao.CodeFileColumns.CreatedAt),
 			qm.OrderBy(dao.CodeFileColumns.CreatedAt)),
@@ -286,12 +287,17 @@ func (pr *projectsRepo) Update(ctx context.Context, id int, project models.Proje
 		return err
 	}
 
-	p := dao.Project{
-		ID:          id,
-		Name:        project.Name,
-		Description: project.Description,
+	columns := []string{dao.ProjectColumns.UpdatedAt}
+	p := dao.Project{ID: id}
+	if project.Name != "" {
+		p.Name = project.Name
+		columns = append(columns, dao.ProjectColumns.Name)
 	}
-	changed, err := p.Update(ctx, tx, boil.Whitelist(dao.ProjectColumns.Name, dao.ProjectColumns.Description, dao.ProjectColumns.UpdatedAt))
+	if project.Description != "" {
+		p.Description = project.Description
+		columns = append(columns, dao.ProjectColumns.Description)
+	}
+	changed, err := p.Update(ctx, tx, boil.Whitelist(columns...))
 	if err != nil {
 		log.Error("updating existing project", err)
 		tx.Rollback()
@@ -339,6 +345,36 @@ func (pr *projectsRepo) Delete(ctx context.Context, id int) error {
 
 	if _, err := dao.ProjectsTags(qm.Where("project_id = ?", id)).DeleteAll(ctx, tx); err != nil {
 		log.Error("deleting code files from existing project", err)
+		tx.Rollback()
+		return err
+	}
+
+	dbProjectsHistory, err := dao.ProjectsHistories(
+		qm.Select(dao.ProjectsHistoryColumns.ID, dao.ProjectsHistoryColumns.ProjectID),
+		qm.Where("project_id = ?", id),
+	).All(ctx, tx)
+	if err != nil {
+		log.Error("searching for the history of the project to delete")
+		tx.Rollback()
+		return err
+	}
+
+	dbProjectsHistoryId := make([]interface{}, len(dbProjectsHistory))
+	for i, dbProjectHistory := range dbProjectsHistory {
+		dbProjectsHistoryId[i] = dbProjectHistory.ID
+	}
+
+	if _, err := dao.ProjectsCodeFilesHistories(
+		qm.Select(dao.ProjectsCodeFilesHistoryColumns.ID, dao.ProjectsCodeFilesHistoryColumns.RevisionID),
+		qm.WhereIn("revision_id IN ?", dbProjectsHistoryId...),
+	).DeleteAll(ctx, tx); err != nil {
+		log.Error("deleting code files history for the deleted project", err)
+		tx.Rollback()
+		return err
+	}
+
+	if _, err := dbProjectsHistory.DeleteAll(ctx, tx); err != nil {
+		log.Error("deleting project revision history for the deleted project", err)
 		tx.Rollback()
 		return err
 	}
